@@ -1,0 +1,12 @@
+[package]
+name = "sky"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.1.1", features = ["derive"] }
+confy = "0.5.1"
+serde = { version = "1.0.152", features = ["derive"] }
+ureq = { version = "2.6.1", features = ["json"] }
