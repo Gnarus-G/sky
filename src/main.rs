@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
-    io::{stdin, stdout, Write},
+    io::{self, stdin, stdout, Write},
     vec,
 };
 
@@ -133,33 +133,42 @@ impl Display for ChatWithAI {
     }
 }
 
-fn main() {
-    let mut chat = match Cli::parse().command {
+fn main() -> std::io::Result<()> {
+    match Cli::parse().command {
         Some(Command::Config { api_key, show }) => {
             if api_key.is_some() {
-                confy::store("sky", None, Config { api_key }).unwrap();
+                confy::store("sky", None, Config { api_key })
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             }
 
             if show {
-                println!("{:?}", confy::load::<Config>("sky", None).unwrap())
+                println!(
+                    "{:?}",
+                    confy::load::<Config>("sky", None)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                );
             }
 
-            return;
+            return Ok(());
         }
         None => {
-            let cfg: Config = confy::load("sky", None).unwrap();
-            match cfg.api_key {
+            let cfg: Config =
+                confy::load("sky", None).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+            let mut chat = match cfg.api_key {
                 Some(_) => ChatWithAI::new(cfg),
                 None => panic!("need an api key"),
-            }
-        }
-    };
+            };
 
-    prompt();
-    for line in stdin().lines().flatten() {
-        let response = chat.say(line);
-        println!("\n{response}\n");
-        prompt();
+            prompt();
+            for line in stdin().lines().flatten() {
+                let response = chat.say(line);
+                println!("\n{response}\n");
+                prompt();
+            }
+
+            Ok(())
+        }
     }
 }
 
