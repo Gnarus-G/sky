@@ -163,7 +163,7 @@ fn main() -> std::io::Result<()> {
             prompt();
             for line in stdin().lines().flatten() {
                 let response = chat.say(line);
-                println!("\n{response}\n");
+                println!("\nSky: {response}\n");
                 prompt();
             }
 
@@ -174,6 +174,6 @@ fn main() -> std::io::Result<()> {
 
 #[inline(always)]
 fn prompt() {
-    print!("> ");
+    print!("You: ");
     stdout().flush().ok();
 }
