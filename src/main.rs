@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
+    fs::File,
     io::{self, stdin, stdout, Write},
+    time::UNIX_EPOCH,
     vec,
 };
 
@@ -21,6 +23,10 @@ impl Default for Config {
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Cli {
+    /// Should Sky print the conversation to stderr.
+    #[arg(short)]
+    print: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -30,7 +36,7 @@ enum Command {
     /// Set some runtime configuration, most importantly the Openai API KEY
     Config {
         /// Openai API KEY
-        #[arg(short = 'a', long)]
+        #[arg(short, long)]
         api_key: Option<String>,
 
         /// Print all the current configurations.
@@ -63,17 +69,17 @@ impl Display for AIResponse {
     }
 }
 
+trait Chat {
+    fn say(&mut self, text: String) -> AIResponse;
+}
+
 #[derive(Debug)]
 struct ChatWithAI {
     c: Vec<String>,
     secrets: Config,
 }
 
-impl ChatWithAI {
-    fn new(secrets: Config) -> Self {
-        Self { c: vec![], secrets }
-    }
-
+impl Chat for ChatWithAI {
     fn say(&mut self, text: String) -> AIResponse {
         self.c.push(text.to_string());
 
@@ -107,6 +113,12 @@ impl ChatWithAI {
 
         res
     }
+}
+
+impl ChatWithAI {
+    fn new(secrets: Config) -> Self {
+        Self { c: vec![], secrets }
+    }
 
     fn dialogue(&self) -> String {
         self.c
@@ -133,8 +145,37 @@ impl Display for ChatWithAI {
     }
 }
 
+struct ReportingToFile {
+    chat: ChatWithAI,
+    file: File,
+}
+
+impl ReportingToFile {
+    fn new(chat: ChatWithAI, file: File) -> Self {
+        Self { chat, file }
+    }
+}
+
+impl Chat for ReportingToFile {
+    fn say(&mut self, text: String) -> AIResponse {
+        self.file
+            .write_fmt(format_args!("\nYou: {}\n", text))
+            .map_err(|e| eprintln!("{e}"))
+            .ok();
+        let res = self.chat.say(text);
+        self.file
+            .write_fmt(format_args!("\nSky: {}\n", res.to_string()))
+            .map_err(|e| eprintln!("{e}"))
+            .ok();
+
+        self.file.flush().map_err(|e| eprintln!("{e}")).ok();
+        res
+    }
+}
+
 fn main() -> std::io::Result<()> {
-    match Cli::parse().command {
+    let args = Cli::parse();
+    match args.command {
         Some(Command::Config { api_key, show }) => {
             if api_key.is_some() {
                 confy::store("sky", None, Config { api_key })
@@ -148,17 +189,12 @@ fn main() -> std::io::Result<()> {
                         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
                 );
             }
-
-            return Ok(());
         }
         None => {
             let cfg: Config =
                 confy::load("sky", None).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-            let mut chat = match cfg.api_key {
-                Some(_) => ChatWithAI::new(cfg),
-                None => panic!("need an api key"),
-            };
+            let mut chat = chat_factory(cfg, args.print)?;
 
             prompt();
             for line in stdin().lines().flatten() {
@@ -166,14 +202,33 @@ fn main() -> std::io::Result<()> {
                 println!("\nSky: {response}\n");
                 prompt();
             }
-
-            Ok(())
         }
     }
+
+    Ok(())
 }
 
 #[inline(always)]
 fn prompt() {
     print!("You: ");
     stdout().flush().ok();
+}
+
+#[inline]
+fn chat_factory(cfg: Config, report: bool) -> io::Result<Box<dyn Chat>> {
+    match cfg.api_key {
+        Some(_) => {
+            if report {
+                let now = UNIX_EPOCH
+                    .elapsed()
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                    .as_millis();
+                let file = File::create(format!("./chat-with-sky-{now}"))?;
+                return Ok(Box::new(ReportingToFile::new(ChatWithAI::new(cfg), file)));
+            } else {
+                return Ok(Box::new(ChatWithAI::new(cfg)));
+            }
+        }
+        None => panic!("need an api key"),
+    }
 }
