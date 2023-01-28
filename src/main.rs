@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use sky::{config::Config, *};
-use std::io::{self, stdin, stdout, Write};
+use std::{
+    error::Error,
+    io::{stdin, stdout, Write},
+};
 
 /// An AI chat assistant powered by Openai.
 #[derive(Parser)]
@@ -28,26 +31,20 @@ enum Command {
     },
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> std::result::Result<(), Box<dyn Error>> {
     let args = Cli::parse();
     match args.command {
         Some(Command::Config { api_key, show }) => {
             if api_key.is_some() {
-                confy::store("sky", None, Config { api_key })
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                confy::store("sky", None, Config { api_key })?
             }
 
             if show {
-                println!(
-                    "{:?}",
-                    confy::load::<Config>("sky", None)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-                );
+                println!("{:?}", confy::load::<Config>("sky", None)?);
             }
         }
         None => {
-            let cfg: Config =
-                confy::load("sky", None).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let cfg: Config = confy::load("sky", None)?;
 
             let mut chat = chat_factory(cfg, args.print)?;
 
